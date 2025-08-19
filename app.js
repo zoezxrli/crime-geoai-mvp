@@ -6,14 +6,14 @@ const CITY_ZOOM   = 10;
 // ---- data urls (two datasets: all, autotheft) ----
 const DATASETS = {
   all: {
-    heat: "./geojson/heat_90d.geojson",
-    emerg: "./geojson/emerging.geojson",
-    near: "./geojson/near_repeat.geojson",
+    heat: "../geojson/heat_90d.geojson",
+    emerg: "../geojson/emerging.geojson",
+    near: "../geojson/near_repeat.geojson",
   },
   autotheft: {
-    heat: "./geojson/heat_90d_autotheft.geojson",
-    emerg: "./geojson/emerging_autotheft.geojson",
-    near: "./geojson/near_repeat_autotheft.geojson",
+    heat: "../geojson/heat_90d_autotheft.geojson",
+    emerg: "../geojson/emerging_autotheft.geojson",
+    near: "../geojson/near_repeat_autotheft.geojson",
   },
 };
 let current = "all";
