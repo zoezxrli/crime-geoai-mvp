@@ -1,6 +1,6 @@
 # Toronto Crime GeoAI — Near-Repeat & Emerging Hotspots (MVP)
 
-**Live demo:** https://zoezxrli.github.io/crime-geoai-mvp/
+**Live demo:** https://zoezxrli.github.io/crime-geoai-mvp/  
 **Stack:** Python (Polars/Pandas), H3, scikit-learn, GeoPandas, Mapbox GL JS
 
 > Planner-first crime analytics: 90-day heat, near-repeat “aftershock” risk, and emerging hotspots — in one lightweight web map.
