@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Toronto Near-Repeat (Knox) — MVP</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css" rel="stylesheet" />
+  <link href="./styles.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <aside class="panel" aria-label="Controls">
+    <header class="panel__header">
+      <div class="panel__title">Near-Repeat Attention</div>
+      <div id="badge" class="badge">loading…</div>
+    </header>
+
+    <!-- Reset / Fit -->
+    <div class="row">
+        <button id="btnFit" class="btn">Reset view</button>
+    </div>
+
+    <!-- Offence filter -->
+    <div class="row">
+        <label class="row__label" for="offenceSel">Offence:</label>
+        <select id="offenceSel">
+            <option value="all" selected>All crimes</option>
+            <option value="autotheft">Auto Theft</option>
+        </select>
+    </div>
+
+    <div class="row">
+        <label class="checkbox">
+            <input type="checkbox" id="toggleHeat" checked />
+            <span>Heat (last 90 days)</span>
+        </label>
+        <div class="legend" id="legend-heat">
+            <div><span class="swatch" style="background:#f1f1f1;"></span> low</div>
+            <div><span class="swatch" style="background:#f03b20;"></span> high</div>
+        </div>
+    </div>
+
+    <div class="row">
+      <label class="checkbox">
+        <input type="checkbox" id="toggle" checked />
+        <span>Near-Repeat</span>
+      </label>
+    </div>
+
+    <div class="row">
+    <label class="checkbox">
+        <input type="checkbox" id="toggleEmerging" checked />
+        <span>Emerging</span>
+    </label>
+
+    <div class="legend" id="legend-emerging">
+        <div><span class="swatch swatch-new"></span> New</div>
+        <div><span class="swatch swatch-intens"></span> Intensifying</div>
+        <div><span class="swatch swatch-persist"></span> Persistent</div>
+    </div>
+    </div>
+
+    <div class="row">
+        <label class="checkbox">
+            <input type="checkbox" id="toggleEmergingNI" checked />
+            <span>Only show <b>New</b> + <b>Intensifying</b></span>
+        </label>
+    </div>
+
+
+    <div class="row">
+      <label for="cov" class="row__label">
+        Min coverage: <span id="covLabel">1</span>
+      </label>
+      <input id="cov" type="range" min="1" max="6" step="1" value="1" />
+    </div>
+
+    <div id="note" class="muted"></div>
+  </aside>
+
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js"></script>
+  <script src="./config.js"></script>   <!-- 这里设置 window.MAPBOX_TOKEN = "pk..." -->
+  <script src="./app.js"></script>      <!-- 最后 -->
+
+</body>
+</html>

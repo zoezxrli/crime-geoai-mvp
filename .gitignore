@@ -1,0 +1,14 @@
+# OS/editor
+.DS_Store
+*.log
+
+# Python cache/env
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Big raw data (keep out of git)
+data/raw/
+data/processed/
+*.parquet
