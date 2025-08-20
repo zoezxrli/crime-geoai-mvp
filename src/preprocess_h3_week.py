@@ -1,7 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-TPS MCI CSV -> H3(res=9) -> weekly aggregation.
-Outputs: data/processed/hex_week.parquet
+TPS MCI CSV  →  H3 (res=9)  →  weekly aggregation.
+Output: data/processed/hex_week.parquet
+
+What it does
+------------
+1) Reads the Toronto Police Service Major Crime Indicators CSV.
+2) Picks the right columns (lat/lon/date/time/offence) by name or via CLI flags.
+3) Builds a timezone-aware timestamp (America/Toronto).
+4) Assigns each record to an H3 hexagon (default res=9).
+5) Buckets by week (week starts on Monday, Toronto local time).
+6) Aggregates to counts per (h3, week_start).
+
+Example
+-------
+python src/preprocess_h3_week.py \
+  --csv data/raw/Major_Crime_Indicators.csv \
+  --out data/processed/hex_week.parquet \
+  --h3_res 9 \
+  --latcol LAT_WGS84 --loncol LONG_WGS84 \
+  --datecol OCC_DATE --timecol OCC_HOUR \
+  --offencecol MCI_CATEGORY \
+  --offence_filter "Auto Theft"
 """
 
 import argparse
@@ -13,7 +33,7 @@ try:
 except ImportError:
     raise SystemExit("Missing h3-py. Install with: conda install -c conda-forge h3-py")
 
-# ---- candidate name pools (全部小写比较) ----
+# ---- candidate name pools (compare in lowercase) ----
 CANDS = {
     "lat": [
         "lat", "latitude", "y", "lat_wgs84", "latitude_wgs84"
@@ -33,7 +53,7 @@ CANDS = {
     ],
 }
 
-# --- H3 v3/v4 兼容 ---
+# --- H3 v3/v4 compatibility ---
 def h3_index(lat, lon, res):
     # v3: geo_to_h3; v4: latlng_to_cell
     if hasattr(h3, "geo_to_h3"):
@@ -42,6 +62,7 @@ def h3_index(lat, lon, res):
         return h3.latlng_to_cell(lat, lon, res)
 
 def pick(colnames, pool):
+    """Pick the first matching column from a list of candidates (case-insensitive)."""
     low = {c.lower(): c for c in colnames}
     for k in pool:
         if k in low:
@@ -49,9 +70,9 @@ def pick(colnames, pool):
     return None
 
 def to_tz_toronto(dt):
-    # 尽量转为 Toronto 本地有时区的时间戳
+    """Convert to timezone-aware timestamps in America/Toronto."""
     s = pd.to_datetime(dt, errors="coerce", utc=False)
-    # 如果已经有时间部分 OK；没有时间就当 00:00
+    # If naïve → localize to Toronto; if tz-aware → convert to Toronto
     if getattr(s.dtype, "tz", None) is None:
         s = s.dt.tz_localize("America/Toronto", nonexistent="shift_forward", ambiguous="NaT")
     else:
@@ -59,11 +80,11 @@ def to_tz_toronto(dt):
     return s
 
 def combine_date_time(df, c_date, c_time):
+    """Combine date + time columns into a single tz-aware timestamp."""
     if c_time is None:
         dt = to_tz_toronto(df[c_date])
-        dt = dt.dt.floor("D")  # 没时间列就当 00:00
-        return dt
-    # 可能 time 是小时（int）或 "HH:MM:SS"
+        return dt.dt.floor("D")  # no time column → assume 00:00
+    # time could be hour integer or "HH:MM:SS"
     if pd.api.types.is_numeric_dtype(df[c_time]):
         hour = pd.to_numeric(df[c_time], errors="coerce").fillna(0).clip(0, 23).astype(int)
         base = to_tz_toronto(df[c_date]).dt.floor("D")
@@ -74,7 +95,7 @@ def combine_date_time(df, c_date, c_time):
         return to_tz_toronto(comb)
 
 def week_start_monday(ts):
-    # tz-aware -> 先去 tz 再回填
+    """Get week start (Monday) in Toronto local time."""
     naive = ts.dt.tz_convert("America/Toronto").dt.tz_localize(None)
     wk = naive.dt.to_period("W-MON").dt.start_time
     return wk.dt.tz_localize("America/Toronto")
@@ -84,44 +105,45 @@ def main(csv_path, out_parquet, h3_res=9, offence_filter=None,
     df = pd.read_csv(csv_path, low_memory=False)
     cols = list(df.columns)
 
-    # 允许命令行手动指定；否则自动猜
+    # Allow explicit CLI overrides; otherwise auto-detect
     c_lat = latcol or pick(cols, CANDS["lat"])
     c_lon = loncol or pick(cols, CANDS["lon"])
     c_date = datecol or pick(cols, CANDS["date"])
-    c_time = timecol or pick(cols, CANDS["time"])   # 可为 None
+    c_time = timecol or pick(cols, CANDS["time"])   # may be None
     c_off  = offencecol or pick(cols, CANDS["offence"])
 
     if any(x is None for x in [c_lat, c_lon, c_date]):
         raise ValueError(
-            f"Required cols not found.\nSaw: {cols}\n"
-            f"Need latitude/longitude/occurrence date at minimum. "
-            f"Try --latcol LAT_WGS84 --loncol LONG_WGS84 --datecol OCC_DATE --timecol OCC_HOUR"
+            "Required columns not found.\n"
+            f"Saw: {cols}\n"
+            "Need latitude / longitude / occurrence date at minimum. "
+            "Try: --latcol LAT_WGS84 --loncol LONG_WGS84 --datecol OCC_DATE --timecol OCC_HOUR"
         )
 
-    # 只留有用列
+    # Keep only the columns we actually use
     keep = [c for c in [c_lat, c_lon, c_date, c_time, c_off] if c]
     df = df[keep].copy()
 
-    # 经纬度
+    # Lat/Lon → numeric
     df["lat"] = pd.to_numeric(df[c_lat], errors="coerce")
     df["lon"] = pd.to_numeric(df[c_lon], errors="coerce")
     df = df.dropna(subset=["lat", "lon"])
 
-    # 过滤 offence（可选）
+    # Optional offence filter
     if offence_filter and c_off:
         df = df[df[c_off].astype(str).str.contains(offence_filter, case=False, na=False)]
 
-    # 组合成带时区的 datetime
+    # Build a tz-aware datetime
     df["dt"] = combine_date_time(df, c_date, c_time)
     df = df.dropna(subset=["dt"])
 
-    # H3
+    # H3 index
     df["h3"] = [h3_index(lat, lon, h3_res) for lat, lon in zip(df["lat"], df["lon"])]
 
-    # 周起点（周一）
+    # Week start (Monday)
     df["week_start"] = week_start_monday(df["dt"])
 
-    # 周 x hex 聚合
+    # Aggregate to (h3 × week)
     agg = (df.groupby(["h3", "week_start"], as_index=False)
              .size()
              .rename(columns={"size": "count"}))
