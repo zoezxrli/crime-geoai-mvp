@@ -1,10 +1,15 @@
-// Fallback: Toronto bounds（约略包住 GTA）
+// -------------------------------------------------------------
+// Toronto Crime GeoAI — Web map glue code (Mapbox GL JS)
+// Layers: Heat (90d), Near-Repeat (Knox), Emerging (simple)
+// Includes: offence dropdown, quantile colors, permalink, reset
+// -------------------------------------------------------------
+
+// Fallback: Toronto bounds (roughly covering the GTA)
 const CITY_BOUNDS = [[-79.90, 43.40], [-78.90, 43.90]];
 const CITY_CENTER = [-79.3832, 43.6532];
 const CITY_ZOOM   = 10;
 
-// ---- data urls (two datasets: all, autotheft) ----
-// ---- data urls (two datasets: all, autotheft) ----
+// Data URLs (two datasets: all crimes, auto theft)
 const DATASETS = {
   all: {
     heat: "geojson/heat_90d.geojson",
@@ -21,12 +26,14 @@ const DATASETS = {
 let current = "all";
 
 (function main() {
+  // Token sanity check
   if (!window.MAPBOX_TOKEN || !String(window.MAPBOX_TOKEN).startsWith("pk.")) {
     alert("Missing/invalid Mapbox token. Set window.MAPBOX_TOKEN in web/config.js");
     return;
   }
   mapboxgl.accessToken = window.MAPBOX_TOKEN;
 
+  // Create the map
   const map = new mapboxgl.Map({
     container: "map",
     style: "mapbox://styles/mapbox/light-v11",
@@ -34,6 +41,7 @@ let current = "all";
     zoom: CITY_ZOOM
   });
 
+  // Grab UI elements once
   const ui = {
     note: document.getElementById("note"),
     badge: document.getElementById("badge"),
@@ -48,6 +56,7 @@ let current = "all";
   };
   ui.badge && (ui.badge.textContent = "loading…");
 
+  // Mapbox runtime errors → show a small message instead of crashing
   map.on("error", (e) => {
     console.error("Mapbox error:", e?.error);
     ui.badge && (ui.badge.textContent = "map error");
@@ -55,35 +64,34 @@ let current = "all";
   });
 
   map.on("load", async () => {
-    // ---------- safe ops（避免“layer not exist”报错） ----------
+    // Safe wrappers to avoid “layer not exist” exceptions
     const safe = {
       filter: (id, f) => { if (map.getLayer(id)) map.setFilter(id, f); },
       paint:  (id, prop, val) => { if (map.getLayer(id)) map.setPaintProperty(id, prop, val); },
       move:   (id, before) => { if (map.getLayer(id) && map.getLayer(before)) { try{ map.moveLayer(id, before); } catch(_){} } }
     };
 
-    // ---------- helpers ----------
+    // ---------- Helpers ----------
     async function loadJSON(url){ const r=await fetch(url); if(!r.ok) throw new Error(url); return r.json(); }
+
+    // Validate a bbox ([ [minX,minY], [maxX,maxY] ]) before fitBounds
     function isValidBounds(b){
-        if (!b || !Array.isArray(b) || !Array.isArray(b[0]) || !Array.isArray(b[1])) return false;
-        const [minX,minY] = b[0], [maxX,maxY] = b[1];
-        const nums = [minX,minY,maxX,maxY];
-        if (nums.some(v => !Number.isFinite(v))) return false;
-        // lon/lat 合法范围 & 左下 < 右上
-        if (minX < -180 || maxX > 180 || minY < -85 || maxY > 85) return false;
-        if (!(maxX > minX) || !(maxY > minY)) return false;
-        // 过大（说明算坏了）或过小（点太集中）都回退城市
-        const spanX = Math.abs(maxX - minX);
-        const spanY = Math.abs(maxY - minY);
-        if (spanX > 20 || spanY > 20) return false;   // 太大
-        return true;
-        }
-    function forceToronto(){
-        map.fitBounds(CITY_BOUNDS, { padding: 40, duration: 600 });
+      if (!b || !Array.isArray(b) || !Array.isArray(b[0]) || !Array.isArray(b[1])) return false;
+      const [minX,minY] = b[0], [maxX,maxY] = b[1];
+      const nums = [minX,minY,maxX,maxY];
+      if (nums.some(v => !Number.isFinite(v))) return false;
+      // legal lon/lat ranges & bottom-left < top-right
+      if (minX < -180 || maxX > 180 || minY < -85 || maxY > 85) return false;
+      if (!(maxX > minX) || !(maxY > minY)) return false;
+      // extremely large span likely means a broken bbox → fall back to city
+      const spanX = Math.abs(maxX - minX);
+      const spanY = Math.abs(maxY - minY);
+      if (spanX > 20 || spanY > 20) return false;
+      return true;
     }
+    function forceToronto(){ map.fitBounds(CITY_BOUNDS, { padding: 40, duration: 600 }); }
 
-
-    // 递归提取 [lon,lat]，稳住 Polygon/MultiPolygon 等结构
+    // Recursively walk coordinates to collect [lon, lat] pairs (Polygon / MultiPolygon-safe)
     function walkLngLat(node, cb) {
       if (!node) return;
       if (Array.isArray(node) && typeof node[0] === "number" && typeof node[1] === "number") {
@@ -96,7 +104,8 @@ let current = "all";
     function bboxFromGeoJSON(gj) {
       let minX =  180, minY =  90, maxX = -180, maxY = -90;
       const extend = (lon, lat) => {
-        lat = Math.max(-85, Math.min(85, lat)); // clamp lat
+        // clamp latitude to avoid projection edge cases
+        lat = Math.max(-85, Math.min(85, lat));
         if (lon < minX) minX = lon;
         if (lat < minY) minY = lat;
         if (lon > maxX) maxX = lon;
@@ -107,10 +116,10 @@ let current = "all";
       return [[minX, minY], [maxX, maxY]];
     }
 
-    // 当前缓存（用于 Reset / Fit）
+    // Cache the “actual GeoJSON objects currently on the map”
     let currentData = { heat:null, emerg:null, near:null };
 
-    // ---------- 预取初始数据，然后用对象喂给 source ----------
+    // Prefetch initial data, then feed objects to sources (not URLs)
     const [heat0, emerg0, near0] = await Promise.all([
       loadJSON(DATASETS[current].heat),
       loadJSON(DATASETS[current].emerg),
@@ -119,12 +128,12 @@ let current = "all";
     currentData = { heat: heat0, emerg: emerg0, near: near0 };
     const EMPTY = { type:"FeatureCollection", features:[] };
 
-    // ---------- sources ----------
+    // Sources
     map.addSource("heat90",   { type: "geojson", data: heat0  || EMPTY });
     map.addSource("emerging", { type: "geojson", data: emerg0 || EMPTY });
     map.addSource("nearrep",  { type: "geojson", data: near0  || EMPTY });
 
-    // ---------- layers ----------
+    // Layers
     map.addLayer({
       id:"heat90-fill", type:"fill", source:"heat90",
       paint:{
@@ -164,77 +173,72 @@ let current = "all";
       paint:{ "line-color":"#084594","line-width":0.6 }
     });
 
-    // 层级：near-repeat 在 emerging 下面
+    // Z-order: keep near-repeat under emerging
     safe.move("nearrep-fill", "emerging-fill");
     safe.move("nearrep-outline","emerging-outline");
 
-    // ---------- Reset / Fit ----------
+    // Reset / Fit to current data (with robust fallbacks)
     function fitToCurrent(opts = {}){
-        const arr = [currentData.heat, currentData.emerg, currentData.near].filter(Boolean);
-        if (!arr.length) { forceToronto(); return; }
+      const arr = [currentData.heat, currentData.emerg, currentData.near].filter(Boolean);
+      if (!arr.length) { forceToronto(); return; }
 
-        let union = null;
-        for (const gj of arr){
-            const b = bboxFromGeoJSON(gj);
-            if (!b) continue;
-            if (!union) union = [[...b[0]], [...b[1]]];
-            else {
-            union[0][0] = Math.min(union[0][0], b[0][0]);
-            union[0][1] = Math.min(union[0][1], b[0][1]);
-            union[1][0] = Math.max(union[1][0], b[1][0]);
-            union[1][1] = Math.max(union[1][1], b[1][1]);
-            }
+      let union = null;
+      for (const gj of arr){
+        const b = bboxFromGeoJSON(gj);
+        if (!b) continue;
+        if (!union) union = [[...b[0]], [...b[1]]];
+        else {
+          union[0][0] = Math.min(union[0][0], b[0][0]);
+          union[0][1] = Math.min(union[0][1], b[0][1]);
+          union[1][0] = Math.max(union[1][0], b[1][0]);
+          union[1][1] = Math.max(union[1][1], b[1][1]);
         }
+      }
 
-        // 兜底：算不出 or 异常 -> 回到城市
-        if (!isValidBounds(union) || opts.force === true) { forceToronto(); return; }
-
-        map.fitBounds(union, { padding: 40, duration: 600 });
+      if (!isValidBounds(union) || opts.force === true) { forceToronto(); return; }
+      map.fitBounds(union, { padding: 40, duration: 600 });
     }
 
-    // ui.btnFit?.addEventListener("click", () => fitToCurrent({force:true}));
+    // Reset button → hard fallback to the city
     ui.btnFit?.addEventListener("click", () => forceToronto());
 
-    // ---------- Heat 分位数配色 ----------
+    // Heat color ramp from quantiles (city/time adaptive)
     function setHeatQuantilesFrom(heatGJ){
-        const vals = (heatGJ?.features || [])
-            .map(f => Number(f.properties?.count_90d ?? 0))
-            .filter(v => Number.isFinite(v))
-            .sort((a,b)=>a-b);
+      const vals = (heatGJ?.features || [])
+        .map(f => Number(f.properties?.count_90d ?? 0))
+        .filter(v => Number.isFinite(v))
+        .sort((a,b)=>a-b);
 
-        // 没数据 or 全 0 → 简单两段式，保证不报错
-        const vmax = vals.length ? vals[vals.length-1] : 0;
-        if (!vals.length || vmax <= 0){
-            map.setPaintProperty("heat90-fill","fill-color",[
-                "interpolate", ["linear"], ["get","count_90d"],
-                0, "#f1f1f1",
-                1, "#fd8d3c"
-            ]);
-            return;
-        }
-
-        const q = p => vals[Math.floor((vals.length-1)*p)];
-        // 可能出现重复 → 去重并强制递增
-        let stops = [0, q(0.50), q(0.75), q(0.90), q(0.97)];
-
-        // 保证严格递增（相等时加一个极小的 epsilon）
-        const eps = Math.max(vmax * 1e-6, 1e-6);
-        for (let i=1; i<stops.length; i++){
-            if (!(stops[i] > stops[i-1])) stops[i] = stops[i-1] + eps;
-        }
-
+      // No data or all zeros → simple 2-stop ramp (always valid)
+      const vmax = vals.length ? vals[vals.length-1] : 0;
+      if (!vals.length || vmax <= 0){
         map.setPaintProperty("heat90-fill","fill-color",[
-            "interpolate", ["linear"], ["get","count_90d"],
-            stops[0], "#f1f1f1",
-            stops[1], "#fdd0a2",
-            stops[2], "#fd8d3c",
-            stops[3], "#f03b20",
-            stops[4], "#bd0026"
+          "interpolate", ["linear"], ["get","count_90d"],
+          0, "#f1f1f1",
+          1, "#fd8d3c"
         ]);
+        return;
+      }
+
+      const q = p => vals[Math.floor((vals.length-1)*p)];
+      let stops = [0, q(0.50), q(0.75), q(0.90), q(0.97)];
+      // Force strictly increasing input values for Mapbox “interpolate”
+      const eps = Math.max(vmax * 1e-6, 1e-6);
+      for (let i=1; i<stops.length; i++){
+        if (!(stops[i] > stops[i-1])) stops[i] = stops[i-1] + eps;
+      }
+
+      map.setPaintProperty("heat90-fill","fill-color",[
+        "interpolate", ["linear"], ["get","count_90d"],
+        stops[0], "#f1f1f1",
+        stops[1], "#fdd0a2",
+        stops[2], "#fd8d3c",
+        stops[3], "#f03b20",
+        stops[4], "#bd0026"
+      ]);
     }
 
-
-    // ---------- 侧栏文案/slider ----------
+    // Sidebar text & slider init
     function refreshMetaFrom(nearGJ, emergGJ){
       const feats = nearGJ?.features||[];
       if (feats.length){
@@ -243,6 +247,7 @@ let current = "all";
         const anchor = emergGJ?.features?.[0]?.properties?.anchor_date || null;
         const note = `Knox near-repeat (d≤250 m, t≤14 d).${anchor?` Anchor=${anchor}.`:''} Tip: filter to coverage ≥2.`;
         ui.note && (ui.note.textContent = note);
+
         const covMax = feats.reduce((m,f)=>Math.max(m, Number(f.properties?.coverage||1)),1);
         if (ui.covSlider){
           ui.covSlider.max = String(Math.max(2, covMax));
@@ -258,18 +263,18 @@ let current = "all";
       }
     }
 
-    // 初始视图：分位数 + 文案 + fit
+    // Initial view: quantiles + sidebar + fit
     setHeatQuantilesFrom(heat0);
     refreshMetaFrom(near0, emerg0);
     fitToCurrent();
 
-    // ---------- 交互：显隐 ----------
+    // Layer visibility toggles
     const setVis = (id,on)=> map.setLayoutProperty(id,"visibility",on?"visible":"none");
     ui.toggleHeat?.addEventListener("change", ()=>{ setVis("heat90-fill",ui.toggleHeat.checked); setVis("heat90-outline",ui.toggleHeat.checked); });
     ui.toggleNear?.addEventListener("change", ()=>{ setVis("nearrep-fill",ui.toggleNear.checked); setVis("nearrep-outline",ui.toggleNear.checked); });
     ui.toggleEmerging?.addEventListener("change", ()=>{ setVis("emerging-fill",ui.toggleEmerging.checked); setVis("emerging-outline",ui.toggleEmerging.checked); });
 
-    // Emerging 只看 New + Intensifying
+    // Emerging: show only New + Intensifying
     function applyEmergingFilter(onlyNI){
       const f = onlyNI ? ["match",["get","label"],["New","Intensifying"], true, false] : null;
       safe.filter("emerging-fill", f);
@@ -280,7 +285,7 @@ let current = "all";
       ui.toggleEmergingNI.addEventListener("change", ()=> applyEmergingFilter(ui.toggleEmergingNI.checked));
     }
 
-    // coverage 滑块
+    // Coverage slider
     function applyCov(v){
       ui.covLabel && (ui.covLabel.textContent = String(v));
       const f = [">=", ["get","coverage"], Number(v)];
@@ -293,7 +298,7 @@ let current = "all";
       applyCov(ui.covSlider.value || 1);
     }
 
-    // Hover 高亮
+    // Hover emphasis
     map.on("mouseenter","nearrep-fill",()=> map.getCanvas().style.cursor="pointer");
     map.on("mouseleave","nearrep-fill",()=> map.getCanvas().style.cursor="");
     map.on("mousemove","nearrep-fill",()=> safe.paint("nearrep-outline","line-width",1.0));
@@ -316,7 +321,7 @@ let current = "all";
         .setHTML(`<b>${p.label}</b><br/>recent=${Number(p.recent_mean).toFixed(2)}/w · baseline=${Number(p.baseline_mean).toFixed(2)}/w<br/>Δ=${Number(p.delta).toFixed(2)}, z≈${Number(p.z).toFixed(2)}<br/><span class="muted">anchor=${p.anchor_date}, windows=${p.recent_weeks}/${p.baseline_weeks}w</span>`).addTo(map);
     });
 
-    // ---------- Offence 下拉：切换数据集 ----------
+    // Offence dropdown → switch dataset
     async function switchDataset(kind){
       const ds = DATASETS[kind] || DATASETS.all;
       const [heatGJ, emergGJ, nearGJ] = await Promise.all([
@@ -326,18 +331,19 @@ let current = "all";
       map.getSource("emerging").setData(emergGJ || EMPTY);
       map.getSource("nearrep").setData(nearGJ || EMPTY);
       currentData = { heat: heatGJ, emerg: emergGJ, near: nearGJ };
-        setHeatQuantilesFrom(heatGJ || EMPTY);
-        refreshMetaFrom(nearGJ || EMPTY, emergGJ || EMPTY);
 
-        // 等 source 真正生效再 fit（更稳），同时有兜底
-        map.once("idle", () => fitToCurrent());
+      setHeatQuantilesFrom(heatGJ || EMPTY);
+      refreshMetaFrom(nearGJ || EMPTY, emergGJ || EMPTY);
 
-        current = kind;
-        saveURL();
+      // Wait until sources are fully applied, then fit robustly
+      map.once("idle", () => fitToCurrent());
+
+      current = kind;
+      saveURL();
     }
     ui.offenceSel?.addEventListener("change", (e)=> switchDataset(e.target.value));
 
-    // ---------- Permalink（保存/恢复状态） ----------
+    // Permalink: save/restore UI + camera state from URL
     function saveURL(){
       const c = map.getCenter(), z = map.getZoom().toFixed(2);
       const params = new URLSearchParams({
@@ -355,6 +361,7 @@ let current = "all";
     [ui.covSlider, ui.toggleNear, ui.toggleEmerging, ui.toggleEmergingNI, ui.toggleHeat, ui.offenceSel]
       .forEach(el=> el && el.addEventListener("change", saveURL));
 
+    // Restore from URL (if present)
     (function loadURL(){
       const p = new URLSearchParams(location.search);
       if (p.has("z")){
