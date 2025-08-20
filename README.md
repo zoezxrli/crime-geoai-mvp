@@ -61,7 +61,6 @@ Color ramp auto-adapts via **percentiles**, robust to low-variance data.
   Download the CSV into `data/raw/`. Columns include lat/lon (`LAT_WGS84`, `LONG_WGS84`), occurrence date/time (`OCC_DATE`, `OCC_HOUR`), and category (`MCI_CATEGORY`).  
   ⚠️ Locations are **offset to nearest intersections** by TPS for privacy; we aggregate to H3 cells.
 
----
 
 ## Quickstart
 
