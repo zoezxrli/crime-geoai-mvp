@@ -1,24 +1,23 @@
 # Toronto Crime GeoAI — Near-Repeat & Emerging Hotspots (MVP)
+A GeoAI Pipeline for Prevention Planning
 
 **Live demo:** https://zoezxrli.github.io/crime-geoai-mvp/  
-**Stack:** Python (Polars/Pandas), H3, scikit-learn, GeoPandas, Mapbox GL JS
+**Stack:** Polars/Pandas, H3, GeoPandas, scikit-learn, Mapbox GL JS
 
-> Planner-first crime analytics: 90-day heat, near-repeat “aftershock” risk, and emerging hotspots — in one lightweight web map.
-
----
+This is a demo. The pipeline is city-agnostic: swap in another city’s open crime data (Chicago, NYC, etc.), map a few columns (lat/lon/date/time/offence), re-run the scripts, and the same web map works out-of-the-box.
 
 ## Elevator Pitch
 
-We turn Toronto Police Service **Major Crime Indicators (MCI)** into **actionable, prevention-oriented** maps:
+Turn Toronto Police Service Major Crime Indicators (MCI) into **actionable, planner-friendly maps:** 
 
-- **Heat (last 90 days):** where incidents cluster recently (soft background).
-- **Near-Repeat (Knox):** short-term risk within **250 m / 14 days**, estimated via permutation (global **p-value**).
-- **Emerging Hotspots (simple):** **New / Intensifying / Persistent** by comparing a **4-week recent** vs **12-week baseline**.
+- **Heat (last 90 days):** soft backdrop of where incidents concentrate lately.
+- **Near-Repeat (Knox):** short-term “aftershock” risk within **250 m / 14 days**, global significance via **Monte-Carlo.**.
+- **Emerging Hotspots (simple):** label **New / Intensifying / Persistent** by comparing a **4-week recent** window vs a **12-week baseline**.
 
-**Use-cases:** lighting and sightlines, access control, hours/management tweaks, neighborhood engagement.  
-**Non-goals:** enforcement targeting of individuals.
+**Why:** support prevention & planning (lighting, access, operations, neighborhood engagement) — not individual-level enforcement.
 
----
+**Tags:** AI for Social Science · Computational Social Science · Urban Informatics · GeoAI · H3 · Knox · Vector Tiles · Privacy-by-Design
+
 
 ## What’s Inside
 
@@ -27,29 +26,24 @@ We turn Toronto Police Service **Major Crime Indicators (MCI)** into **actionabl
 - **Emerging** labels with lightweight, explainable rules.
 - Single-page **Mapbox** app with toggles, filters, hover, permalink, offence dropdown.
 
----
 
-## Methods (one-pagers)
+## Methods (mini cards)
 
 ### Near-Repeat (Knox)
-Use a **90-day lookback** window ending at the dataset’s anchor date.  
-Count pairs of incidents with **distance ≤ 250 m** and **|Δt| ≤ 14 days** (observed).  
-Build a null by **randomly permuting timestamps** (R=500). If observed ≫ null mean, clustering is significant (report **global p** and **z**).  
-Map shows **k=1 H3 rings** around incidents in the **most recent 14 days**, with per-cell **`coverage`**.
+Within a **90-day** lookback ending at the dataset’s anchor date, count pairs within **250 m & 14 days**. Compare observed vs a null from **R=500** timestamp permutations. Excess → significant short-term clustering. For the map, take incidents in the most recent **14 days**, draw **k=1 H3 rings**, and aggregate a per-cell **`coverage`**. We also expose a global **`p_value`**.
 
 ### Emerging (simple)
 Per H3 cell, compare **Recent (4w)** vs **Baseline (12w)**:
 - **New:** baseline≈0 & recent ≥ 2
 - **Intensifying:** recent ≥ baseline + _z·σ_ (default _z_=1)
-- **Persistent:** baseline in top quartile and recent remains high
+- **Persistent:** baseline in citywide top quartile and recent remains high
+Anchored to the latest week. This approximates Gi*+trend for an MVP.
 
-Windows are **anchored to the dataset’s latest week**.
 
 ### Heat (90d)
 Sum weekly counts over the last 90 days and render as a **low-alpha background**.  
 Color ramp auto-adapts via **percentiles**, robust to low-variance data.
 
----
 
 ## Parameters (defaults)
 
@@ -60,7 +54,6 @@ Color ramp auto-adapts via **percentiles**, robust to low-variance data.
 - Heat window: **90 days**  
 - All “recent” windows are **anchored to the data’s latest timestamp** (not “today”).
 
----
 
 ## Data
 
